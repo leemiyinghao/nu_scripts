@@ -37,21 +37,27 @@ def "nu-complete ssh-host" [] {
     ] | filter { |file| $file | path exists } 
 
     $files | each { |file|
-        let lines = $file | open | lines | str trim
-
-        mut result = []
-        for $line in $lines {
-            let data = $line | parse  --regex '^Host\s+(?<host>.+)'
-            if ($data | is-not-empty) {
-                $result = ($result | append { 'value': ($data.host | first), 'description': "" })
-                continue;
-            }
-            let data = $line | parse --regex '^HostName\s+(?<hostname>.+)'
-            if ($data | is-not-empty) {
-                let last = $result | last | update 'description' ($data.hostname | first)
-                $result = ($result | drop | append $last)
-            }
-        }
-        $result
+	    parse-ssh-config $file
     } | flatten
+}
+
+def parse-ssh-config [file] {
+    let lines = $file | open | lines | str trim
+
+    mut result = []
+    for $line in $lines {
+        let includeds = $line | parse --regex '^Include\s+(?<file>.+)' | each { |match| $file | path dirname | path join ($match.file) } | each { |path| glob $path } | flatten | filter { |included| $included | path exists }
+        $result = ($result | append ($includeds | each { |included| parse-ssh-config $included }))
+        let data = $line | parse  --regex '^Host\s+(?<host>.+)'
+        if ($data | is-not-empty) {
+            $result = ($result | append { 'value': ($data.host | first), 'description': "" })
+            continue;
+        }
+        let data = $line | parse --regex '^HostName\s+(?<hostname>.+)'
+        if ($data | is-not-empty) {
+            let last = $result | last | update 'description' ($data.hostname | first)
+            $result = ($result | drop | append $last)
+        }
+    }
+    $result
 }
